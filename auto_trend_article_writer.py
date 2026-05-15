@@ -32,13 +32,13 @@ CSV_FILE = OUT_DIR / "blogger_ready_posts.csv"
 COUNTRIES = ["US", "GB", "CA", "AU"]
 
 MAX_TRENDS_PER_COUNTRY = 20
-MAX_ARTICLES_TO_GENERATE = 3
+MAX_ARTICLES_TO_GENERATE = 5
 MAX_SOURCES_PER_TOPIC = 8
 
-# اجعلها False لو تريد فقط صور Wikimedia الأكثر أمانًا
+# False = safer images from Wikimedia fallback only
 USE_RSS_IMAGES = False
 
-# اجعلها False لو GDELT يعطيك 429 Too Many Requests كثيرًا
+# False avoids GDELT 429 errors
 USE_GDELT = False
 
 GOOGLE_TRENDS_RSS = "https://trends.google.com/trending/rss?geo={country}"
@@ -97,9 +97,16 @@ NICHE_KEYWORDS = [
     "automation",
     "agent",
     "agents",
+    "ai agent",
+    "ai agents",
+    "ai agent builder",
     "model context protocol",
     "mcp",
     "llama",
+    "cursor",
+    "codex",
+    "zapier",
+    "composio",
 ]
 
 BLOCKED_KEYWORDS = [
@@ -174,6 +181,20 @@ BLOCKED_KEYWORDS = [
     "archaeology",
     "animal",
     "zoo",
+    # weak news / company-news topics
+    "reportedly",
+    "legal action",
+    "lawsuit",
+    "cuts",
+    "layoffs",
+    "revenue",
+    "stock",
+    "shares",
+    "chief",
+    "ceo",
+    "interview",
+    "courts",
+    "record quarterly",
 ]
 
 RSS_SOURCES = [
@@ -230,7 +251,6 @@ def contains_any(text: str, keywords: list[str]) -> bool:
         if not keyword:
             continue
 
-        # short words like AI, app, job must match whole word
         if len(keyword) <= 3:
             pattern = r"\b" + re.escape(keyword) + r"\b"
             if re.search(pattern, text):
@@ -267,11 +287,25 @@ def score_topic(title: str, summary: str = "") -> int:
             "llama",
             "mcp",
             "model context protocol",
+            "ai agent",
+            "ai agents",
         ],
     ):
         score += 30
 
-    if contains_any(text, ["tool", "tools", "app", "apps", "software", "workspace"]):
+    if contains_any(
+        text,
+        [
+            "tool",
+            "tools",
+            "app",
+            "apps",
+            "software",
+            "workspace",
+            "automation",
+            "builder",
+        ],
+    ):
         score += 20
 
     if contains_any(
@@ -318,23 +352,83 @@ def looks_like_person_name(title: str) -> bool:
         "meta ai",
         "llama",
         "mcp",
+        "cursor",
+        "codex",
+        "zapier",
     }
 
     if lower in allowed_short_topics:
         return False
 
-    # two title-case words and no niche keyword often means a person name
     if len(words) == 2:
         has_niche_word = contains_any(lower, NICHE_KEYWORDS)
         both_title_case = all(w[:1].isupper() for w in words if w)
         if both_title_case and not has_niche_word:
             return True
 
-    # one unknown word is usually not useful
     if len(words) == 1 and lower not in allowed_short_topics:
         return True
 
     return False
+
+
+def is_publishable_topic(title: str) -> bool:
+    lower = title.lower()
+
+    bad_patterns = [
+        "reportedly",
+        "legal action",
+        "lawsuit",
+        "cuts nearly",
+        "cuts jobs",
+        "record quarterly",
+        "who decides",
+        "has thoughts",
+        "says that",
+        "courts a new kind",
+        "chief",
+        "ceo",
+        "stock",
+        "shares",
+        "revenue",
+        "layoffs",
+        "fired",
+        "resigns",
+    ]
+
+    if any(p in lower for p in bad_patterns):
+        return False
+
+    good_patterns = [
+        "best",
+        "tools",
+        "tool",
+        "apps",
+        "app",
+        "how to",
+        "guide",
+        "vs",
+        "what is",
+        "chatgpt",
+        "gemini",
+        "notion",
+        "zapier",
+        "cursor",
+        "codex",
+        "mcp",
+        "ai agent",
+        "ai agents",
+        "automation",
+        "productivity",
+        "software",
+        "builder",
+        "workflow",
+        "workflows",
+        "chrome extension",
+        "browser",
+    ]
+
+    return any(p in lower for p in good_patterns)
 
 
 # =========================
@@ -343,9 +437,6 @@ def looks_like_person_name(title: str) -> bool:
 
 
 def extract_image_url_from_entry(entry) -> str:
-    """
-    Extract image URL from RSS item if available.
-    """
     media_content = entry.get("media_content", [])
     if media_content:
         for item in media_content:
@@ -407,6 +498,12 @@ def make_image_query(title: str, category: str) -> str:
     if "chatgpt" in lower or "gemini" in lower or "ai" in lower:
         return "artificial intelligence productivity"
 
+    if "coding" in lower or "cursor" in lower or "codex" in lower:
+        return "software development laptop code"
+
+    if "zapier" in lower or "automation" in lower:
+        return "workflow automation diagram"
+
     if category == "Travel":
         return "travel planning app"
 
@@ -423,9 +520,6 @@ def make_image_query(title: str, category: str) -> str:
 
 
 def fetch_wikimedia_image_url(query: str) -> str:
-    """
-    Fallback image from Wikimedia Commons.
-    """
     api_url = "https://commons.wikimedia.org/w/api.php"
 
     try:
@@ -470,10 +564,6 @@ def fetch_wikimedia_image_url(query: str) -> str:
 
 
 def download_image(image_url: str, slug: str) -> str:
-    """
-    Downloads image to output/images for your own review.
-    Blogger still needs manual upload if you want the image hosted on Blogger.
-    """
     if not image_url:
         return ""
 
@@ -509,12 +599,6 @@ def pick_article_image(
     title: str,
     category: str,
 ) -> tuple[str, str]:
-    """
-    Priority:
-    1. RSS trend image
-    2. RSS source image
-    3. Wikimedia fallback
-    """
     if USE_RSS_IMAGES and trend.get("image_url"):
         return trend["image_url"], "RSS trend image"
 
@@ -617,6 +701,9 @@ def fetch_rss_trending_topics() -> list[dict]:
                 continue
 
             if looks_like_person_name(title):
+                continue
+
+            if not is_publishable_topic(title):
                 continue
 
             score = score_topic(title, summary)
@@ -803,6 +890,10 @@ def category_for_topic(topic: str) -> tuple[str, str]:
             "mcp",
             "model context protocol",
             "notion",
+            "cursor",
+            "codex",
+            "zapier",
+            "automation",
         ],
     ):
         return "AI Tools", "AI Tools, Productivity, Apps"
@@ -813,6 +904,35 @@ def category_for_topic(topic: str) -> tuple[str, str]:
 def make_article_title(topic: str, category: str) -> str:
     topic = clean_text(topic)
     lower = topic.lower()
+
+    if "ai agent" in lower and "builder" in lower:
+        return "Best AI Agent Builder Tools in 2026: Simple Guide for Beginners"
+
+    if "ai agent builder" in lower:
+        return "Best AI Agent Builder Tools in 2026: Simple Guide for Beginners"
+
+    if "codex" in lower and "cursor" in lower:
+        return "Codex vs Cursor: Which AI Coding Tool Should You Use in 2026?"
+
+    if "ai coding" in lower or ("cursor" in lower and "codex" in lower):
+        return (
+            "Best AI Coding Tools in 2026: Cursor, Codex, and Developer AI Assistants"
+        )
+
+    if "social media management tools" in lower:
+        return "Best Social Media Management Tools in 2026 for Creators and Small Businesses"
+
+    if "automatically answer form responses" in lower and "chatgpt" in lower:
+        return "How to Automatically Answer Form Responses with ChatGPT"
+
+    if "composio" in lower and "zapier" in lower:
+        return "Composio vs Zapier: Which Automation Tool Is Better in 2026?"
+
+    if "zapier" in lower and "mcp" in lower:
+        return "Zapier MCP Explained: How AI Agents Connect with Apps and Workflows"
+
+    if "automation" in lower and "zapier" in lower:
+        return "Zapier Automation Guide: How to Connect Apps and Save Time with AI"
 
     if "notion" in lower and "ai" in lower:
         return (
@@ -867,6 +987,15 @@ def make_meta_description(title: str) -> str:
     if "gemini" in t:
         return "Learn how Gemini AI can help with productivity, research, writing, planning, and everyday tasks."
 
+    if "cursor" in t or "codex" in t or "coding" in t:
+        return "Compare AI coding tools and learn how they can help developers write, review, and improve code faster."
+
+    if "zapier" in t or "automation" in t:
+        return "Learn how automation tools can connect apps, save time, and improve everyday productivity workflows."
+
+    if "social media" in t:
+        return "Discover social media management tools that help creators and small businesses plan, schedule, and manage content."
+
     if "travel" in t or "flight" in t:
         return "Discover smart travel tools and apps to plan trips, compare options, and save time."
 
@@ -918,7 +1047,14 @@ def extract_keywords(items: list[dict]) -> list[str]:
         "use",
         "guide",
         "just",
-        "into",
+        "also",
+        "like",
+        "make",
+        "help",
+        "helps",
+        "work",
+        "works",
+        "need",
     }
 
     words = [w for w in words if w not in stop]
@@ -966,6 +1102,7 @@ def render_article_html(
 
     trend_title = trend["title"]
     country = trend.get("country", "")
+    now_iso = datetime.now(timezone.utc).isoformat()
     now_date = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
     subtitle = (
@@ -1197,7 +1334,27 @@ def render_article_html(
   <p style="font-size: 15px; color: #4b5563; margin: 28px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #0b63ff;">
     <strong>Disclaimer:</strong> This article is for informational purposes only. It does not provide medical, financial, legal, or professional advice. Always verify information from official sources.
   </p>
+""")
 
+    html_parts.append("""
+  <h2 style="font-size: 26px; font-weight: 800; margin: 34px 0 16px; color: #111827;">
+    Related Smart Life Tools Guides
+  </h2>
+
+  <ul style="font-size: 17px; margin-bottom: 28px; padding-left: 22px;">
+    <li style="margin-bottom: 10px;">
+      <a href="/search/label/AI%20Tools" style="color: #0b63ff; font-weight: 700;">More AI Tools Guides</a>
+    </li>
+    <li style="margin-bottom: 10px;">
+      <a href="/search/label/Productivity" style="color: #0b63ff; font-weight: 700;">More Productivity Apps and Tips</a>
+    </li>
+    <li style="margin-bottom: 10px;">
+      <a href="/search/label/How%20To" style="color: #0b63ff; font-weight: 700;">More How-To Guides</a>
+    </li>
+  </ul>
+""")
+
+    html_parts.append("""
   <h2 style="font-size: 26px; font-weight: 800; margin: 34px 0 16px; color: #111827;">
     Sources & Further Reading
   </h2>
@@ -1227,6 +1384,34 @@ def render_article_html(
   </ul>
 </div>
 """)
+
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": title,
+        "description": meta,
+        "author": {
+            "@type": "Organization",
+            "name": SITE_NAME,
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": SITE_NAME,
+        },
+        "datePublished": now_iso,
+        "dateModified": now_iso,
+        "keywords": labels,
+        "articleSection": category,
+    }
+
+    if image_url:
+        schema["image"] = [image_url]
+
+    html_parts.append(
+        '<script type="application/ld+json">'
+        + json.dumps(schema, ensure_ascii=False)
+        + "</script>"
+    )
 
     return "\n".join(html_parts)
 
@@ -1260,22 +1445,46 @@ def main() -> None:
     for t in trends[:20]:
         print(f"- [{t.get('score')}] {t.get('source')} | {t.get('title')}")
 
-    selected = trends[:MAX_ARTICLES_TO_GENERATE]
     csv_rows = []
+    generated_count = 0
+    seen_titles = set()
+    seen_slugs = set()
 
-    for index, trend in enumerate(selected, start=1):
+    for index, trend in enumerate(trends, start=1):
+        if generated_count >= MAX_ARTICLES_TO_GENERATE:
+            break
+
         topic = trend["title"]
+
+        if not is_publishable_topic(topic):
+            print(f"Skipping weak SEO topic: {topic}")
+            continue
+
         category, labels = category_for_topic(topic)
         title = make_article_title(topic, category)
         meta = make_meta_description(title)
 
-        print(f"\n[{index}/{len(selected)}] Topic: {topic}")
+        title_key = " ".join(title.lower().strip().split())
+        if title_key in seen_titles:
+            print(f"Skipping duplicate article title: {title}")
+            continue
+
+        slug = slugify(title)[:90]
+        if slug in seen_slugs:
+            print(f"Skipping duplicate slug: {slug}")
+            continue
+
+        seen_titles.add(title_key)
+        seen_slugs.add(slug)
+
+        print(f"\n[{generated_count + 1}/{MAX_ARTICLES_TO_GENERATE}] Topic: {topic}")
         print(f"Article: {title}")
 
         gdelt_sources = []
         if USE_GDELT:
             gdelt_sources = fetch_gdelt_articles(
-                topic, max_records=MAX_SOURCES_PER_TOPIC
+                topic,
+                max_records=MAX_SOURCES_PER_TOPIC,
             )
             time.sleep(1)
 
@@ -1297,8 +1506,6 @@ def main() -> None:
         if len(combined_sources) < 2:
             print("Not enough sources. Skipping.")
             continue
-
-        slug = slugify(title)[:90]
 
         image_url, image_credit = pick_article_image(
             trend,
@@ -1362,7 +1569,12 @@ def main() -> None:
             }
         )
 
+        generated_count += 1
         time.sleep(2)
+
+    if not csv_rows:
+        print("No publishable articles were generated after filtering.")
+        return
 
     with CSV_FILE.open("w", encoding="utf-8-sig", newline="") as f:
         fieldnames = [
@@ -1386,6 +1598,7 @@ def main() -> None:
         writer.writerows(csv_rows)
 
     print("\nDone.")
+    print(f"Generated articles: {len(csv_rows)}")
     print(f"HTML files: {HTML_DIR}")
     print(f"Images: {IMAGES_DIR}")
     print(f"CSV file: {CSV_FILE}")

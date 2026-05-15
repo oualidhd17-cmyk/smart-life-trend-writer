@@ -21,8 +21,8 @@ BLOG_ID = os.getenv("BLOG_ID", "4369063726049217258")
 
 SCOPES = ["https://www.googleapis.com/auth/blogger"]
 
-MAX_UPLOADS_PER_RUN = 3
-DELAY_BETWEEN_UPLOADS_SECONDS = 60
+MAX_UPLOADS_PER_RUN = 5
+DELAY_BETWEEN_UPLOADS_SECONDS = 180
 
 
 def get_service():
