@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated files
+output/
+
+# Blogger / Google secrets
+client_secret.json
+token_blogger.pickle
+client_secret_b64.txt
+token_blogger_b64.txt
+uploaded_titles.txt
+
+# OS
+.DS_Store
+Thumbs.db
